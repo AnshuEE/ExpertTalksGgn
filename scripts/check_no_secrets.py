@@ -47,7 +47,7 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
     (
         "atlassian api token",
         re.compile(r"\bATATT[A-Za-z0-9_\-=]{20,}"),
-        "use $JIRA_API_TOKEN",
+        "tokens live in the environment, never in a tracked file",
     ),
 ]
 

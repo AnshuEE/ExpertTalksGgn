@@ -125,8 +125,7 @@ see "never expand scope without asking" in `CLAUDE.md`.
 ## Technical Stack & Dev Tools
 
 Snowflake (warehouse, Cortex, Git repository objects, Streamlit-in-Snowflake), dbt Core
-with the `dbt-snowflake` adapter, Python for the Bronze loader, Jira for the ticket
-write-back.
+with the `dbt-snowflake` adapter, Python for the Bronze loader.
 
 - **Dependency management**: `uv` (Python 3.11). `uv venv && uv pip install -r requirements.txt`.
 - **Build/test**: `python -m src.bronze.load_online_retail` for Bronze; `dbt build` for
@@ -141,7 +140,7 @@ Install hooks: `pre-commit install && pre-commit install --hook-type commit-msg`
 
 - Reference internal models with `ref()` and the source file with `source()` — never a
   hardcoded `DATABASE.SCHEMA.TABLE` literal. Environment-specific values (account,
-  warehouse, role, database, Jira base URL) come from env vars, always.
+  warehouse, role, database) come from env vars, always.
 - Shared logic goes in `dbt/macros/` and is reused, not re-inlined. Related helpers sit
   together in one file rather than scattered.
 - SQL style: lowercase keywords, leading commas, CTEs named for what they contain

@@ -204,9 +204,10 @@ expire mid-run — which matters most during long unattended work.
 - If a connection fails with an auth error, stop and report it. Do not retry in a
   loop — each retry opens another browser window.
 
-### Jira
+### Deterministic steps use a CLI, not an integration
 
-The implementation comment posts via the Jira REST API through `curl`, driven by
-`JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_TICKET`. A single deterministic
-HTTP call needs a CLI, not an agent integration — reserve the model for the judgment
-of *what to write*, not the mechanics of posting it.
+The Streamlit deploy is a fixed sequence of SQL statements — `ALTER GIT REPOSITORY
+... FETCH`, then `CREATE OR REPLACE STREAMLIT` — so it runs through `snow sql -f`
+against the files in `sql/deploy/`. A step whose every argument is known in advance
+needs a command, not a tool call. Reserve the model for the judgment of *what* to
+build, not the mechanics of shipping it.

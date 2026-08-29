@@ -24,12 +24,10 @@ here, export them, and never type them into a tracked file.
 | `SNOWFLAKE_WAREHOUSE` | `________` | XS is fine; **set auto-suspend ≥ 5 min** so you don't cold-start on stage |
 | Cortex model | `________` | determined by the probe in §1.3 — do not assume |
 | Git remote URL | `________` | needed for the API integration prefix |
-| `JIRA_BASE_URL` / `JIRA_TICKET` | `________` | e.g. `https://<org>.atlassian.net`, `ETG-1234` |
 
 ```bash
 export SNOWFLAKE_ACCOUNT=... SNOWFLAKE_USER=... SNOWFLAKE_ROLE=... \
        SNOWFLAKE_WAREHOUSE=... SNOWFLAKE_DATABASE=EXPERT_TALK
-export JIRA_BASE_URL=... JIRA_EMAIL=... JIRA_API_TOKEN=... JIRA_TICKET=ETG-1234
 ```
 
 ---
@@ -147,9 +145,9 @@ the MCP server before the session and verify it in the same shell you'll present
 
 Worth saying out loud when you do: this is exactly slide 13's decision rule. The MCP
 server earns its place in Beats 2–3 because the agent is *reasoning across* a
-profiling workflow. The Jira write-back in Beat 4 is a single deterministic HTTP call,
-so it's a `curl`, not an integration. Pointing at that split live makes slide 13
-concrete instead of abstract.
+profiling workflow. The Streamlit deploy in Beat 4 is a fixed pair of SQL statements
+with every argument known in advance, so it's `snow sql -f sql/deploy/...`, not an
+integration. Pointing at that split live makes slide 13 concrete instead of abstract.
 
 ### 1.7 Final pre-flight (T-20 minutes)
 
@@ -539,7 +537,7 @@ ls                              # CLAUDE.md, AGENTS.md, .claude/, docs/ — stil
 > What came with us is the harness. `CLAUDE.md`, `AGENTS.md`, the skill. Committed in
 > Beat 1, before we touched any data.
 >
-> One prompt. Ingest, profile, three layers, dashboard, Jira. No steering."
+> One prompt. Ingest, profile, three layers, dashboard. No steering."
 
 ### The one-shot prompt
 
@@ -598,17 +596,11 @@ Build the pipeline end to end on this branch:
    EXPERT_TALK.PUBLIC.expert_talk_repo FETCH, then CREATE OR REPLACE STREAMLIT from
    the branch path per CLAUDE.md. Return the app URL.
 
-7. JIRA. Post an implementation comment to $JIRA_TICKET using curl against the Jira
-   REST API with $JIRA_BASE_URL, $JIRA_EMAIL and $JIRA_API_TOKEN. Cover: what was
-   built per layer, the business rules encoded and what each one deliberately excludes,
-   row counts at every layer, and the tests added. Write it for a reviewer who was not
-   in the room.
-
-Work through all seven steps without stopping to confirm. Stop and ask only if
+Work through all six steps without stopping to confirm. Stop and ask only if
 completing a step would require breaking a layer rule in CLAUDE.md.
 
 Finish with: row counts per layer, every rule you encoded and explicitly what each one
-does NOT catch, the commands you ran, the app URL, and the Jira comment link.
+does NOT catch, the commands you ran, and the app URL.
 ```
 
 **Why it's built this way** — worth explaining to the audience while it runs:
@@ -652,7 +644,6 @@ Don't narrate the tool calls — the audience can read. Use the time:
      on slide twenty-six — and I'd rather show you a harness that improves than a demo
      that pretends."
 3. **Open the dashboard.** Numbers on screen, sourced from Gold.
-4. **Open the Jira comment.** Slide 24's third card, closed.
 
 ---
 
@@ -765,7 +756,6 @@ rule misses and what it costs.
 | One-shot produces a naive `C`-only rule | Medium | Step 3's coverage-query instruction | **Do not hide it.** Run the prefix distribution live, show the gap in pounds, fix the skill file. This is the strongest available recovery — it turns a miss into the thesis. |
 | Agent expands scope / wanders | Low | `CLAUDE.md` "never expand scope"; prompt's narrow escape hatch | Interrupt, restate the step, continue. |
 | Network drops entirely | Low | — | `demo-safety-net` branch + screenshots of the deployed dashboard. Keep a local screenshot set on disk. |
-| Jira 401 | Medium | Test the `curl` in pre-flight | Skip it, show the drafted comment text. It's the least load-bearing step in the beat. |
 | Overrun into the recap | **High** | Slides 16–22 are the compressible block | Cut Beat 4's review to row counts + dashboard only. Never cut the recap. |
 
 ---
@@ -1101,23 +1091,4 @@ create or replace streamlit EXPERT_TALK.GOLD.expert_talk_dashboard
     query_warehouse = <SNOWFLAKE_WAREHOUSE>;
 
 show streamlits in schema EXPERT_TALK.GOLD;   -- the URL is in the output
-```
-
-### C.11 Jira comment (`curl`)
-
-```bash
-curl -sS -X POST \
-  -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_TICKET/comment" \
-  -d @- <<'JSON'
-{
-  "body": {
-    "type": "doc", "version": 1,
-    "content": [{"type": "paragraph", "content": [{"type": "text",
-      "text": "Pipeline built end to end. Bronze: 541,909 rows, all STRING, no cleaning. Silver: 5,268 exact duplicates removed; flags is_cancelled / is_return / is_non_merchandise / has_customer, each documented in schema.yml. Gold: fct_revenue excludes cancellations (incl. A-prefix bad-debt adjustments), returns, non-positive prices and quantities, and non-merchandise line items. Tests: dbt schema + singular tests, pytest on the loader. Dashboard deployed to Streamlit-in-Snowflake reading Gold only."
-    }]}]
-  }
-}
-JSON
 ```

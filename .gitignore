@@ -25,3 +25,7 @@ data/raw/*.xlsx
 .claude/settings.local.json
 
 .DS_Store
+
+# Byproduct of ad-hoc `uv run --with ...`. Dependencies are declared in
+# requirements.txt (see AGENTS.md), not managed as a uv project.
+uv.lock

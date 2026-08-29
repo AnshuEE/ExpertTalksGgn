@@ -1,0 +1,5 @@
+# dbt_utils gives us expression_is_true / accepted_range for the mart tests the
+# create-dbt-model skill requires. Run `dbt deps` after cloning.
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]

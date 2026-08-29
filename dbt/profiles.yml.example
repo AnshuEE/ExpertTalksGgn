@@ -1,0 +1,41 @@
+# Copy to dbt/profiles.yml (gitignored) — or point DBT_PROFILES_DIR at this directory.
+# Every value comes from the environment. Nothing here is ever a literal.
+expert_talk:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+
+      # SSO. No password or private-key entry exists by design — see CLAUDE.md.
+      authenticator: externalbrowser
+
+      role: "{{ env_var('SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      schema: SILVER               # default; marts override to GOLD via +schema
+
+      threads: 4
+
+      # Required. An expiring SSO session mid-`dbt build` opens a browser window
+      # on the projector — see the runbook's risk register.
+      client_session_keep_alive: true
+
+    # GitHub Actions has no browser, so externalbrowser cannot work there.
+    # CI uses a dedicated key-pair service user and builds into EXPERT_TALK_CI,
+    # so it can never touch the demo objects. See .github/workflows/ci.yml.
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+
+      role: "{{ env_var('SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      schema: SILVER
+
+      threads: 4

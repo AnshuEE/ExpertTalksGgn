@@ -70,8 +70,13 @@ auditable against something that was never touched.
 **Bronze does not clean, cast, filter, dedupe, rename, or reorder.** Specifically:
 
 - Every source column lands as `STRING`. `Quantity` is a string. `UnitPrice` is a
-  string. `InvoiceDate` is a string. `CustomerID` arrives from Excel as `17850.0` and
-  is stored as the string `"17850.0"` — do not strip the `.0` here.
+  string. `InvoiceDate` is a string.
+- **Force every column to string at read time** — `pd.read_excel(..., dtype=str)`. This
+  is not a style preference, it is the rule. If you let pandas infer types, `CustomerID`
+  becomes `float64` (because ~25% of it is blank), and every ID silently gains a `.0`:
+  `17850` in the sheet becomes `17850.0` in the warehouse. That is a transformation, it
+  happened in Bronze, and nobody chose it — a default did. The correct Bronze value is
+  `"17850"`, exactly as the cell holds it.
 - No `WHERE` clause. Cancelled orders, negative quantities, blank customer IDs, and
   duplicate rows all land. 541,909 source rows in, 541,909 rows out.
 - No `DISTINCT`, no `MERGE`, no dedup of any kind.

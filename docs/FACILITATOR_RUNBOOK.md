@@ -239,10 +239,10 @@ Then scroll to the dataflow diagram:
 
 Land these three, in this order:
 
-1. **"Bronze never cleans."** — "Every column a string. `Quantity` is a string.
-   `CustomerID` arrives from Excel as `17850.0` and stays as the text `17850.0`. That
-   looks wrong. It is the most important rule in the file, because it means every later
-   decision is auditable against something nobody touched."
+1. **"Bronze never cleans."** — "Every column a string. `Quantity` is a string. Not
+   because strings are nice, but because the moment you let a library guess a type,
+   it has transformed your data and you didn't decide to. Watch for that in ten minutes —
+   it's the first thing that goes wrong, and it goes wrong silently."
 2. **"Tests ship with the thing they test."** — "Not 'add tests after.' A model without
    tests is a draft. Slide five said the guardrails you need already existed before AI —
    this is where that stops being a platitude."
@@ -316,7 +316,7 @@ depends on the audience having seen them.
 
 | Miss | Why it matters | What to say |
 |---|---|---|
-| `CustomerID` written as `17850` not `17850.0` | pandas read it as float and the agent "helpfully" cleaned it | "That's a cast. In Bronze. It looks like a fix and it's a layer violation — I've now lost the evidence of what Excel actually did." |
+| **`CustomerID` written as `17850.0`** — the headline miss | `read_excel` without `dtype=str` infers `float64` (25% of the column is blank), so every ID gains a `.0`. The sheet says `17850`. | "Where did that decimal point come from? It's not in the spreadsheet. Nobody decided to add it — a default did. That's a transformation, in Bronze, and it's invisible." |
 | Header row or trailing blank rows counted into the total | Bronze row count must be exactly the source count | "Before, after, delta. Check four on our review list. What's the number and why?" |
 | `NaN` written as the literal string `"nan"` | pandas artifact leaking into the warehouse as data | "Is that in the source file, or did our loader invent it?" |
 | Row-count assertion written but never run | "Done" without evidence | "You said it's done. Which command did you run?" |
@@ -325,14 +325,28 @@ depends on the audience having seen them.
 Verify in Snowsight, on screen:
 
 ```sql
-select count(*) from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW;   -- expect 541,909
-select * from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW limit 20;
+select count(*) from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW;   -- expect exactly 541,909
+
+-- The decimal-point check. Correct Bronze returns 0 here.
+select count(*) as coerced_customer_ids
+from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW
+where customerid like '%.%';                                  -- expect 0, not 406,829
+
+select customerid, invoiceno, quantity, unitprice
+from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW limit 20;
 ```
 
-Point at a `17850.0` in the output:
+That second query is your money shot for this beat — one number, unambiguous, no
+squinting at a result grid from the back of the room. Run it whichever way the draft
+went:
 
-> "There it is. Ugly, and correct. Bronze is supposed to look like the source, not like
-> what we wish the source was."
+> "Four hundred thousand rows where the customer ID has a decimal point in it. Open the
+> spreadsheet — it says `17850`. So where did `.0` come from? Nobody wrote a cleaning
+> step. `read_excel` saw a quarter of the column was blank, decided the column was
+> floats, and told us nothing.
+>
+> That's the whole argument for Bronze in one column. Not 'raw data is sacred' — it's
+> that transformations you didn't choose are the ones you'll never think to check."
 
 ```bash
 git tag beat2-bronze
@@ -412,17 +426,31 @@ standing in for half a million rows."*
 
 ### What it should surface (facilitator's reference — do not pre-announce)
 
+All counts below are **verified against the actual file**, not estimated.
+
 | Issue | Actual scale | Likelihood it's found |
 |---|---|---|
-| Missing `CustomerID` | ~135,080 rows (~25%) | Near-certain — it's the loudest stat |
-| Cancelled orders, `InvoiceNo` starts `C` | 9,288 rows | Near-certain — visible in the sample |
+| Missing `CustomerID` | 135,080 rows (24.9%) | Near-certain — it's the loudest stat |
+| Cancelled orders, `InvoiceNo` starts `C` | 9,288 rows, −£896,812 | Near-certain — visible in the sample |
 | Negative / zero `Quantity` | 10,624 rows | Near-certain — min is negative in the stats |
 | Negative / zero `UnitPrice` | 2,517 rows | Likely |
-| `CustomerID` stored as float (`17850.0`) | all non-null | Likely — obvious in the sample |
-| Non-merchandise `StockCode`s (`POST`, `D`, `M`, `DOT`, `AMAZONFEE`, gift cards) | 37 codes | Coin-flip — depends on the sample draw |
+| Missing `Description` | 1,454 rows | Likely |
+| `CustomerID` carrying a `.0` | 406,829 rows — **only if your loader coerced it** | Likely, *if present* — see note below |
+| Non-merchandise `StockCode`s (`POST`, `D`, `M`, `DOT`, `AMAZONFEE`, `BANK CHARGES`, `PADS`, `CRUK`, `gift_0001_*`) | 33 distinct codes | Coin-flip — depends on the sample draw |
 | Exact duplicate rows | 5,268 rows | Unlikely — a random sample can't show it |
-| Case-inconsistent `StockCode` (`15056BL` / `15056bl`) | — | Unlikely |
-| **`A`-prefix "Adjust bad debt" rows (two at −£11,062.06)** | **a handful of rows** | **Very unlikely — single-digit rows in 541,909** |
+| Case-inconsistent `StockCode` (`15056BL` / `15056bl`, `M` / `m`) | 117 codes with lowercase | Unlikely |
+| **`A`-prefix "Adjust bad debt" rows** | **3 rows: +£11,062.06, −£11,062.06, −£11,062.06. Net −£11,062.06** | **Very unlikely — 3 rows in 541,909** |
+
+Two notes on that table:
+
+- **The `.0` row is conditional.** If Beat 2's loader was corrected to `dtype=str`, there
+  are no `.0` values in Bronze and Cortex cannot find this — correctly. If the draft
+  loader survived, all 406,829 non-null IDs carry it. Know which Bronze you're profiling.
+- **"33 codes" is my regex's answer, not a fact of the universe.** It counts anything
+  not matching `^\d{5}[A-Za-z]*$`, which sweeps in the `DCGS*` range — arguably real
+  products. Where the merchandise boundary sits is a judgment call, and that is exactly
+  check 5. If someone asks the number, the honest answer is "depends where you draw the
+  line, and you have to draw it explicitly."
 
 **Read the output live and mark it honestly.** Tick what it caught. Then:
 
@@ -438,32 +466,54 @@ On duplicates:
 On the `A`-prefix rows — **do this one live, it's the sharpest moment in the session:**
 
 ```sql
-select left(invoiceno,1) as prefix, count(*) as rows,
-       round(sum(try_cast(quantity as number) * try_cast(unitprice as float)), 2) as amount
+select case when invoiceno rlike '^[0-9]+$' then '<numeric>'
+            else left(invoiceno, 1) end as prefix
+     , count(*) as rows
+     , round(sum(try_cast(quantity as number) * try_cast(unitprice as float)), 2) as amount
 from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW
 group by 1 order by rows desc;
 ```
 
-> "Look at the prefixes. `C` for cancellations, nine thousand rows — everyone knows that
-> one, it's in every tutorial about this dataset. And then `A`. A handful of rows.
-> 'Adjust bad debt', eleven thousand pounds a time."
+Verified output — exactly three rows, and the third is the point:
 
-**Read the actual row count and amount off the screen** — don't quote a number from this
-runbook. The `amount` column in that query gives you the real figure live, and quoting it
-from the result is both accurate and more convincing than a rehearsed statistic.
+| prefix | rows | amount |
+|---|---|---|
+| `<numeric>` | 532,618 | 10,655,616.63 |
+| `C` | 9,288 | −896,812.49 |
+| **`A`** | **3** | **−11,062.06** |
 
-> "That's a rounding error in row terms and very much not a rounding error in pounds.
-> Cortex didn't find it, and honestly, neither would most engineers reading a sample. But
-> if you write `where invoice_no not like 'C%'` — which is what everyone writes — those
-> rows land in your revenue mart and move the number.
+> "Three prefixes in the whole table. Numeric — normal invoices. `C` for cancellations,
+> nine thousand rows, minus nine hundred grand — everyone knows that one, it's in every
+> tutorial written about this dataset.
 >
-> This is check one on our review list: is it a rule, or a pattern that happened to fit?
-> The AI gave me the list in thirty seconds. Deciding that this specific gap matters —
-> that's still mine."
+> And `A`. Three rows."
 
-*If Cortex does find the `A` rows:* say so with genuine credit — "it got one I didn't
-expect, and it got it from two rows in a sample" — then pivot to duplicates, which it
-structurally cannot find. The point survives either way, and honesty about which
+Then drill in — this is the line that lands:
+
+```sql
+select * from EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW where invoiceno like 'A%';
+```
+
+> "`A563185`, `A563186`, `A563187`. 'Adjust bad debt.' Eleven thousand and sixty-two
+> pounds, six pence — one positive, two negative, three consecutive minutes on a Friday
+> afternoon in August. Someone booked an adjustment, got it wrong, reversed it, and
+> booked it again.
+>
+> Three rows out of five hundred and forty-one thousand. Cortex didn't find them, and
+> honestly, nor would most engineers reading a sample. But write
+> `where invoice_no not like 'C%'` — which is what everyone writes, including me — and
+> all three land in your revenue mart. And notice the trap inside the trap: the positive
+> one nearly cancels the negatives out, so the damage is eleven thousand, not thirty-
+> three. Your total looks *almost* right. That's so much worse than being obviously wrong.
+>
+> Check one on our review list: is it a rule, or a pattern that happened to fit? The AI
+> gave me the list in thirty seconds. Deciding that this specific gap matters — that's
+> still mine."
+
+*If Cortex does find the `A` rows:* give genuine credit — "it caught something I did not
+expect it to catch, from three rows in a sample of a hundred and twenty" — then pivot to
+duplicates, which it structurally cannot find. The point survives either way, and
+honesty about which
 happened is more persuasive than a scripted win.
 
 ```bash
@@ -614,18 +664,19 @@ won't draw the line themselves.
 > "Three moments in Beats two and three needed a human, and I want to name them
 > precisely.
 >
-> **One.** The loader stripped `.0` off `CustomerID`. Sensible-looking cleanup, wrong
-> layer, and it destroyed the evidence of what Excel did. I caught that because a file
-> in this repo says Bronze never cleans.
+> **One.** The loader put a decimal point on four hundred thousand customer IDs. Not
+> because anyone wrote a cleaning step — because `read_excel` guessed a type and said
+> nothing. A transformation nobody chose, in the layer that exists specifically to have
+> none. I caught it because a file in this repo says Bronze never cleans.
 >
 > **Two.** Cortex couldn't find the duplicate rows. Not a weakness of the model — I
 > handed it a random sample, and duplicates are a `group by` over the whole table.
 > Wrong instrument, and choosing the instrument was my job.
 >
-> **Three.** A handful of rows out of five hundred and forty-one thousand, prefixed `A`
-> instead of `C` — bad-debt adjustments worth eleven thousand pounds each. Cortex missed
-> them. Most engineers miss them. Knowing that a prefix convention is a pattern and not a
-> rule — that's judgment, and it stayed mine.
+> **Three.** Three rows out of five hundred and forty-one thousand, prefixed `A` instead
+> of `C` — bad-debt adjustments, eleven thousand pounds, arranged so the total still
+> looks plausible. Cortex missed them. Most engineers miss them. Knowing that a prefix
+> convention is a pattern and not a rule — that's judgment, and it stayed mine.
 >
 > Then Beat four did all of it in one prompt. Same model. Same data. What changed is
 > that all three of those corrections had been written down — in `CLAUDE.md`, in
@@ -809,7 +860,8 @@ typed as (
         , try_cast(quantity_raw as number(38,0))                        as quantity
         , try_to_timestamp_ntz(invoiced_at_raw)                         as invoiced_at
         , try_cast(unit_price_raw as float)                             as unit_price
-        -- via float: Excel wrote these as 17850.0, so a direct integer cast nulls them
+        -- via float first: harmless on a clean Bronze ('17850'), and still correct if a
+        -- coerced loader wrote '17850.0', which a direct integer cast would null out.
         , try_cast(try_cast(customer_id_raw as float) as number(38,0))  as customer_id
         , country
         , _source_row
@@ -834,9 +886,10 @@ flagged as (
     select
           deduped.*
         , quantity * unit_price as extended_amount
-        -- Prefix coverage was measured, not assumed: C = cancellations (9,288 rows),
-        -- A = "Adjust bad debt" (single-digit row count, GBP 11,062.06 a time).
-        -- Both are non-revenue; a C-only predicate leaks the A rows into the mart.
+        -- Prefix coverage was measured, not assumed. The table holds exactly three
+        -- prefixes: numeric (532,618 rows), C = cancellations (9,288 rows, -GBP 896,812),
+        -- A = "Adjust bad debt" (3 rows, net -GBP 11,062.06). Both C and A are
+        -- non-revenue; a C-only predicate leaks all three A rows into the mart.
         , not regexp_like(invoice_no, '^[0-9]+$')                       as is_cancelled
         , quantity < 0 and regexp_like(invoice_no, '^[0-9]+$')          as is_return
         , coalesce(unit_price, 0) <= 0                                  as is_zero_or_negative_price
@@ -986,13 +1039,17 @@ GOLD = "EXPERT_TALK.GOLD.FCT_REVENUE"
 
 st.title("Online Retail — Revenue")
 
-kpis = session.sql(f"""
+kpis = (
+    session.sql(f"""
     select sum(revenue_amount)    as total_revenue
          , count(*)               as line_items
          , count(distinct invoice_no) as invoices
          , count(distinct iff(has_customer, customer_id, null)) as customers
     from {GOLD}
-""").to_pandas().iloc[0]
+""")
+    .to_pandas()
+    .iloc[0]
+)
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Revenue", f"£{kpis.TOTAL_REVENUE:,.0f}")
@@ -1005,24 +1062,32 @@ st.bar_chart(
     session.sql(f"""
         select invoice_month, sum(revenue_amount) as revenue
         from {GOLD} group by 1 order by 1
-    """).to_pandas().set_index("INVOICE_MONTH")
+    """)
+    .to_pandas()
+    .set_index("INVOICE_MONTH")
 )
 
 left, right = st.columns(2)
 
 with left:
     st.subheader("Top 15 products")
-    st.dataframe(session.sql(f"""
+    st.dataframe(
+        session.sql(f"""
         select description, sum(quantity) as units, sum(revenue_amount) as revenue
         from {GOLD} group by 1 order by revenue desc limit 15
-    """).to_pandas(), use_container_width=True)
+    """).to_pandas(),
+        use_container_width=True,
+    )
 
 with right:
     st.subheader("Top 15 countries")
-    st.dataframe(session.sql(f"""
+    st.dataframe(
+        session.sql(f"""
         select country, sum(revenue_amount) as revenue, count(distinct invoice_no) as invoices
         from {GOLD} group by 1 order by revenue desc limit 15
-    """).to_pandas(), use_container_width=True)
+    """).to_pandas(),
+        use_container_width=True,
+    )
 ```
 
 ### C.10 Streamlit deploy

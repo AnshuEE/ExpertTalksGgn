@@ -73,8 +73,11 @@ change catch it? If the answer needs a caveat, it's a patch.
   understanding what class of row it belongs to and excluding the class.
 - Handling negative `Quantity` and negative `UnitPrice` as two unrelated problems, when
   both are symptoms of "this row is not a sale."
-- Casting `CustomerID` by stripping a literal `.0` suffix, rather than treating it as
-  the Excel float-coercion artifact it is and casting through a numeric type.
+- Repairing `CustomerID` by stripping a literal `.0` suffix in Silver, when the real
+  cause is that the Bronze loader let pandas infer types and coerced the column to
+  float. Stripping the suffix patches the symptom in the wrong layer; reading with
+  `dtype=str` removes the cause. A fix downstream of an avoidable upstream defect is
+  almost always a patch.
 
 **Reject if:** the change would need editing again for the next instance of the same
 problem.

@@ -1,0 +1,21 @@
+name: expert_talk
+version: "1.0.0"
+config-version: 2
+
+profile: expert_talk
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  expert_talk:
+    staging:
+      +materialized: view      # Silver — flags, never filters
+      +schema: SILVER
+    marts:
+      +materialized: table     # Gold — a dashboard queries this
+      +schema: GOLD

@@ -1,0 +1,41 @@
+version: 2
+
+sources:
+  - name: online_retail
+    schema: BRONZE
+    tables:
+      - name: online_retail_raw
+        description: >
+          Bronze — untouched copy of data/raw/Online_Retail.xlsx, loaded by
+          src/bronze/load_online_retail.py. Every column is STRING; no cleaning,
+          casting, filtering, or dedup happened here. 541,909 rows in, 541,909 rows
+          out.
+        columns:
+          - name: invoiceno
+            description: >
+              Source invoice/transaction identifier. Prefix conventions (e.g. a
+              leading "C") are not verified at this layer — see stg_online_retail.
+          - name: stockcode
+            description: >
+              Source product/line-item code. Includes non-merchandise codes
+              (postage, fees, adjustments) alongside real product codes.
+          - name: description
+            description: Free-text line item description as it appears in the source.
+          - name: quantity
+            description: Units sold, as a string. Sign and magnitude not yet validated.
+          - name: invoicedate
+            description: Transaction timestamp, as a string in source format.
+          - name: unitprice
+            description: Per-unit price, as a string. Sign and magnitude not yet validated.
+          - name: customerid
+            description: >
+              Source customer identifier as a string. Blank for guest checkouts
+              (~25% of rows) — that is expected, not missing data.
+          - name: country
+            description: Customer country as recorded at checkout.
+          - name: _loaded_at
+            description: Load timestamp set by the Bronze loader.
+          - name: _source_file
+            description: Path to the source file this row was loaded from.
+          - name: _source_row
+            description: 1-based row ordinal within the source sheet.

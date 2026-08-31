@@ -1,0 +1,126 @@
+version: 2
+
+models:
+  - name: stg_online_retail
+    description: >
+      One row per deduplicated source line item from
+      EXPERT_TALK.BRONZE.ONLINE_RETAIL_RAW, typed and flagged. Grain:
+      line_item_key, a hash of the natural source columns.
+      Dedup: 4,879 groups of byte-identical rows (same invoice, stock code,
+      description, quantity, date, price, customer, and country in every
+      column), totaling 10,147 raw rows, exist in the 541,909-row source.
+      Keeping one row per group removes 5,268 excess rows, leaving 536,641
+      rows.
+      Rules: is_cancelled — a whole-invoice cancellation, InvoiceNo starts
+      with 'C'. is_return — a negative-quantity row that is not a paired
+      cancellation (an internal stock write-off, not a customer return).
+      is_merchandise — false for known non-product stock codes (postage,
+      carriage, manual entries, discounts, samples, bank charges, Amazon fee,
+      charity commission, bad-debt write-offs, gift vouchers). has_customer —
+      CustomerID is present (~25% of rows are guest checkouts with none).
+    columns:
+      - name: line_item_key
+        description: >
+          Surrogate key hashing invoice_no, stock_code, description, quantity,
+          invoiced_at, unit_price, customer_id, and country. Declares the
+          model's grain: one row per deduplicated source line item.
+        tests:
+          - unique
+          - not_null
+
+      - name: invoice_no
+        description: >
+          Source invoice/transaction identifier. A leading 'C' marks a
+          whole-invoice cancellation — see is_cancelled.
+        tests:
+          - not_null
+
+      - name: stock_code
+        description: >
+          Source product/line-item code. Not every value is real merchandise
+          — see is_merchandise.
+        tests:
+          - not_null
+
+      - name: description
+        description: Free-text line item description as it appears in the source.
+
+      - name: quantity
+        description: >
+          Units sold. TRY_CAST from the source string; verified 0% cast
+          failures against this source, so not_null asserts reality.
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: >
+          Per-unit price. TRY_CAST from the source string; verified 0% cast
+          failures against this source, so not_null asserts reality.
+        tests:
+          - not_null
+
+      - name: invoiced_at
+        description: >
+          Transaction timestamp. TRY_TO_TIMESTAMP_NTZ from the source string;
+          verified 0% cast failures against this source, so not_null asserts
+          reality.
+        tests:
+          - not_null
+
+      - name: customer_id
+        description: >
+          Source customer identifier, kept as a string (never cast to a
+          number, to avoid the float-artifact bug documented in the Bronze
+          loader). Null for guest checkouts — verified at 24.93% of rows,
+          matching the documented ~25% guest-checkout rate. A not_null test
+          here would fail on correct data, so none is applied.
+
+      - name: country
+        description: Customer country as recorded at checkout.
+
+      - name: is_cancelled
+        description: >
+          True when invoice_no starts with 'C' — a whole-invoice cancellation
+          under this dataset's naming convention. Verified: every C-prefixed
+          invoice carries negative quantity, and no other InvoiceNo prefix
+          behaves the same way (a separate 'A'-prefixed "Adjust bad debt"
+          entry is excluded from revenue via is_merchandise instead, not this
+          flag).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: is_return
+        description: >
+          True when quantity is negative and the row is not a paired
+          cancellation invoice (is_cancelled is false). These 1,336 rows all
+          have a null customer_id and a zero unit_price, with free-text notes
+          like "damages", "check", or "wet rusty" — internal stock write-offs,
+          not customer-initiated returns against an original sale.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: is_merchandise
+        description: >
+          False for an explicit list of known non-product stock codes (POST,
+          DOT, M, C2, D, S, BANK CHARGES, AMAZONFEE, CRUK, B, and the
+          GIFT_0001_* gift-voucher codes) — 2,946 rows (0.54%). Deliberately
+          not a code-shape regex: a shape rule would wrongly exclude real
+          merchandise such as the DCGS* stock codes and PADS, which carry
+          genuine product descriptions (and, for PADS, real customers).
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: has_customer
+        description: >
+          True when customer_id is present. False for guest checkouts, which
+          are ~25% of rows and expected, not missing data.
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]

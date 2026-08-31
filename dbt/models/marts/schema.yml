@@ -1,0 +1,118 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: >
+      One row per customer_id from stg_online_retail (guest checkouts, which
+      have no CustomerID, are excluded from this dimension — they still
+      appear in fct_revenue with a null customer_id). Country: 8 of 4,372
+      customers have order rows recorded under more than one country;
+      resolved as the country on the customer's most recent invoice, verified
+      deterministic (no customer ties for the single latest invoiced_at).
+    columns:
+      - name: customer_id
+        description: Customer identifier. Grain of this dimension.
+        tests:
+          - unique
+          - not_null
+
+      - name: country
+        description: >
+          Customer's country as of their most recent invoice. See model
+          description for the 8 customers where this required a tiebreak
+          rule.
+        tests:
+          - not_null
+
+  - name: dim_product
+    description: >
+      One row per merchandise stock_code from stg_online_retail
+      (is_merchandise = true; non-product codes like postage and fees are not
+      dimensioned here). Description: not stable per stock_code in the source
+      (typos, revisions) — resolved as the most-frequent non-null
+      description, alphabetical tiebreak for the 12 stock_codes that tie on
+      frequency. 112 of 4,054 stock_codes have no non-null description
+      anywhere in the source, so description is legitimately null for those.
+    columns:
+      - name: stock_code
+        description: Product code. Grain of this dimension.
+        tests:
+          - unique
+          - not_null
+
+      - name: description
+        description: >
+          Most-frequently-recorded description for this stock_code. Null for
+          112 stock_codes that never carry a non-null description in the
+          source — see model description. No not_null test: that would fail
+          on correct data.
+
+  - name: fct_revenue
+    description: >
+      One row per stg_online_retail line item that counts as revenue: not a
+      cancellation (is_cancelled), not a stock write-off (is_return), and
+      real merchandise (is_merchandise). 536,641 Silver rows in, 523,697 kept
+      (12,944 excluded across the three flags, with some overlap). Grain:
+      line_item_key, inherited unchanged from stg_online_retail. customer_id
+      is null for guest checkouts (~25% of rows) — that is expected, not
+      missing data, and is not not_null-tested here.
+    columns:
+      - name: line_item_key
+        description: Grain of this mart, inherited from stg_online_retail.
+        tests:
+          - unique
+          - not_null
+
+      - name: invoice_no
+        description: Source invoice/transaction identifier.
+        tests:
+          - not_null
+
+      - name: stock_code
+        description: Product code. Every row here is merchandise, by construction.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: stock_code
+
+      - name: customer_id
+        description: >
+          Customer identifier. Null for guest checkouts — a real sale with no
+          identified customer, not missing data. When present, always found
+          in dim_customer.
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_id
+
+      - name: country
+        description: Customer country as recorded at checkout.
+
+      - name: invoiced_at
+        description: Transaction timestamp.
+        tests:
+          - not_null
+
+      - name: quantity
+        description: >
+          Units sold. Always positive in this mart — verified 0 non-positive
+          quantities among the rows this filter keeps.
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: >
+          Per-unit price. Never negative in this mart — verified 0 negative
+          prices among the rows this filter keeps. Can legitimately be zero
+          (1,157 rows: giveaway/zero-priced merchandise), which is not the
+          same as "not revenue" and is kept.
+        tests:
+          - not_null
+
+      - name: extended_revenue
+        description: quantity * unit_price. Never negative in this mart.
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"

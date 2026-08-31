@@ -1,5 +1,6 @@
 # Credentials — never commit. profiles.yml.example is the tracked template.
 profiles.yml
+connections.toml
 .env
 *.p8
 *.pem
@@ -25,6 +26,9 @@ data/raw/*.xlsx
 .claude/settings.local.json
 
 .DS_Store
+
+# graphify output — local machine paths + extraction cache, not shared state
+graphify-out/
 
 # Byproduct of ad-hoc `uv run --with ...`. Dependencies are declared in
 # requirements.txt (see AGENTS.md), not managed as a uv project.

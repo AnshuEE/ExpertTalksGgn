@@ -111,8 +111,12 @@ graphify-out/              repo knowledge graph (graph.json, GRAPH_REPORT.md), w
                             If this directory exists, check GRAPH_REPORT.md before
                             Glob/Grep-scanning the tree for a "where is X" / "what
                             depends on Y" question — it usually answers in far fewer
-                            tokens than exploring file-by-file. Absent means not built;
-                            fall back to normal exploration, don't ask for it.
+                            tokens than exploring file-by-file. The graph tells you
+                            WHERE to look, not what's true there — for any node it
+                            names (a test, a rule, a model), open that actual file
+                            before answering; don't stop at the node's label or a
+                            schema.yml entry alone. Absent means not built; fall back
+                            to normal exploration, don't ask for it.
 ```
 
 ## Feature Specifications

@@ -107,12 +107,6 @@ docs/
   ai_review_checklist.md   the six checks applied to every AI-authored change
   FACILITATOR_RUNBOOK.md   run-of-show for the live session
 .claude/skills/            reusable skills — create-dbt-model, and others as they earn it
-graphify-out/              repo knowledge graph (graph.json, GRAPH_REPORT.md), when built.
-                            If this directory exists, check GRAPH_REPORT.md before
-                            Glob/Grep-scanning the tree for a "where is X" / "what
-                            depends on Y" question — it usually answers in far fewer
-                            tokens than exploring file-by-file. Absent means not built;
-                            fall back to normal exploration, don't ask for it.
 ```
 
 ## Feature Specifications

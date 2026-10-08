@@ -1,10 +1,22 @@
 {
-  "hooks": {
-    "PreToolUse": []
-  },
   "permissions": {
     "allow": [
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_token_usage.py -q)",
+      "Bash(.venv/bin/python -m src.scripts.token_usage --limit 8)",
+      "Bash(.venv/bin/python -m src.scripts.token_usage 384391a9-c7fe-4a48-8d40-9d6f74e1140b --by-model)",
+      "Bash(.venv/bin/python -m src.scripts.token_usage 384391a9-c7fe-4a48-8d40-9d6f74e1140b)",
+      "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py tests/test_token_usage.py)",
+      "Bash(.venv/bin/python -m ruff format --check src/scripts/token_usage.py tests/test_token_usage.py)",
+      "Bash(.venv/bin/python -m ruff format src/scripts/token_usage.py)",
+      "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": []
   }
 }

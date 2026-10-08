@@ -13,7 +13,10 @@
       "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py tests/test_token_usage.py)",
       "Bash(.venv/bin/python -m ruff format --check src/scripts/token_usage.py tests/test_token_usage.py)",
       "Bash(.venv/bin/python -m ruff format src/scripts/token_usage.py)",
-      "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py)"
+      "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py)",
+      "Bash(python -m py_compile src/bronze/load_online_retail.py)",
+      "Bash(pytest tests/test_load_online_retail.py -v)",
+      "Bash(pytest tests/ -v)"
     ]
   },
   "hooks": {

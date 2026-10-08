@@ -2,7 +2,7 @@
 
 import pytest
 
-from scripts.check_no_secrets import scan
+from src.scripts.check_no_secrets import scan
 
 
 @pytest.mark.parametrize(

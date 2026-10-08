@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "jscpd": "^5.4.0"
+  }
+}

@@ -6,7 +6,7 @@ AAA pattern per CLAUDE.md.
 
 import pytest
 
-from scripts.check_commit_msg import is_valid
+from src.scripts.check_commit_msg import is_valid
 
 
 @pytest.mark.parametrize(

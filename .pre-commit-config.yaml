@@ -13,6 +13,7 @@ repos:
         args: ["--maxkb=1024"]      # the 23MB source .xlsx must never be committed
       - id: check-merge-conflict
       - id: detect-private-key
+        exclude: ^tests/
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
@@ -25,17 +26,18 @@ repos:
     hooks:
       - id: commit-msg-convention
         name: Conventional Commit with ETG ticket reference
-        entry: python scripts/check_commit_msg.py
+        entry: python src/scripts/check_commit_msg.py
         language: system
         stages: [commit-msg]
         pass_filenames: true
 
       - id: no-hardcoded-snowflake-account
         name: No Snowflake account identifiers in tracked files
-        entry: python scripts/check_no_secrets.py
+        entry: python src/scripts/check_no_secrets.py
         language: system
         pass_filenames: true
         types: [text]
+        exclude: ^tests/
 
       - id: pytest
         name: pytest

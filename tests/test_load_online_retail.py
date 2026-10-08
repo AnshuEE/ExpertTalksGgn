@@ -1,14 +1,17 @@
-"""Tests for the Bronze loader's read step. AAA pattern per CLAUDE.md.
+"""Tests for the Bronze loader. AAA pattern per CLAUDE.md.
 
-Only `read_source` is covered here — it is pure pandas and needs no warehouse.
-`load()` is a thin wrapper around `write_pandas` and would only be meaningfully
-tested against a live Snowflake connection (see the `snowflake` marker).
+`read_source` is pure pandas and needs no warehouse. `load()`'s warehouse round-trip
+still needs a live Snowflake connection (see the `snowflake` marker), but its failure
+contract — a failed load must not report a row count — is covered here with a stubbed
+`connect`.
 """
 
 import pandas as pd
 import pytest
+import snowflake.connector
 
-from src.bronze.load_online_retail import read_source
+from src.bronze import load_online_retail
+from src.bronze.load_online_retail import SnowflakeConnectionConfig, read_source
 
 
 @pytest.fixture
@@ -71,3 +74,97 @@ def test_adds_source_file_and_loaded_at_metadata(source_xlsx):
     # Assert
     assert (df["_SOURCE_FILE"] == str(source_xlsx)).all()
     assert df["_LOADED_AT"].notna().all()
+
+
+@pytest.fixture
+def snowflake_env(monkeypatch):
+    # Arrange — the env vars load() reads, so the test exercises the load path
+    # rather than failing on a missing variable.
+    for name in (
+        "SNOWFLAKE_ACCOUNT",
+        "TEST_SNOWFLAKE_USER",
+        "TEST_SNOWFLAKE_PASSWORD",
+        "SNOWFLAKE_ROLE",
+        "SNOWFLAKE_WAREHOUSE",
+        "SNOWFLAKE_DATABASE",
+    ):
+        monkeypatch.setenv(name, "stub")
+
+
+class _StubConnection:
+    """Minimal stand-in for SnowflakeConnection: context manager + cursor()."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def cursor(self):
+        return self
+
+    def execute(self, sql):
+        return self
+
+
+def test_load_raises_when_the_warehouse_load_fails(source_xlsx, snowflake_env, monkeypatch):
+    # Arrange — connect() fails the way a bad credential or dead warehouse would
+    def fail(config):
+        raise snowflake.connector.errors.DatabaseError("connection refused")
+
+    monkeypatch.setattr(load_online_retail, "connect", fail)
+
+    # Act / Assert — the failure propagates; it is not downgraded to a row count
+    with pytest.raises(snowflake.connector.errors.DatabaseError):
+        load_online_retail.load(source_xlsx)
+
+
+def test_load_returns_row_count_when_the_write_succeeds(source_xlsx, snowflake_env, monkeypatch):
+    # Arrange — a connection and write that both succeed
+    monkeypatch.setattr(load_online_retail, "connect", lambda config: _StubConnection())
+    monkeypatch.setattr(
+        load_online_retail, "write_pandas", lambda conn, df, **kwargs: (True, 1, len(df), [])
+    )
+
+    # Act
+    rows = load_online_retail.load(source_xlsx)
+
+    # Assert — the fixture sheet has 2 rows
+    assert rows == 2
+
+
+def test_connection_config_reads_every_field_from_the_environment(monkeypatch):
+    # Arrange — a distinct value per variable so a mis-wired field is visible
+    monkeypatch.setenv("SNOWFLAKE_ACCOUNT", "acct")
+    monkeypatch.setenv("TEST_SNOWFLAKE_USER", "usr")
+    monkeypatch.setenv("TEST_SNOWFLAKE_PASSWORD", "pwd")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", "rol")
+    monkeypatch.setenv("SNOWFLAKE_WAREHOUSE", "whs")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "dbs")
+
+    # Act
+    config = SnowflakeConnectionConfig.from_env()
+
+    # Assert
+    assert config == SnowflakeConnectionConfig(
+        account="acct",
+        user="usr",
+        password="pwd",
+        role="rol",
+        warehouse="whs",
+        database="dbs",
+    )
+
+
+def test_connection_config_raises_when_an_environment_variable_is_missing(monkeypatch):
+    # Arrange — every variable present except the account
+    monkeypatch.delenv("SNOWFLAKE_ACCOUNT", raising=False)
+    monkeypatch.setenv("TEST_SNOWFLAKE_USER", "usr")
+    monkeypatch.setenv("TEST_SNOWFLAKE_PASSWORD", "pwd")
+    monkeypatch.setenv("SNOWFLAKE_ROLE", "rol")
+    monkeypatch.setenv("SNOWFLAKE_WAREHOUSE", "whs")
+    monkeypatch.setenv("SNOWFLAKE_DATABASE", "dbs")
+
+    # Act / Assert — a missing variable fails loudly rather than defaulting
+    with pytest.raises(KeyError):
+        SnowflakeConnectionConfig.from_env()

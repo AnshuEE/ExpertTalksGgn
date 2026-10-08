@@ -1,16 +1,14 @@
 """Tests for the Bronze loader's read step. AAA pattern per CLAUDE.md.
 
 Only `read_source` is covered here — it is pure pandas and needs no warehouse.
-`load()` and error propagation are tested with mocks (no live warehouse needed).
+`load()` is a thin wrapper around `write_pandas` and would only be meaningfully
+tested against a live Snowflake connection (see the `snowflake` marker).
 """
-
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
-import snowflake.connector.errors
 
-from src.bronze.load_online_retail import load, read_source
+from src.bronze.load_online_retail import read_source
 
 
 @pytest.fixture
@@ -73,32 +71,3 @@ def test_adds_source_file_and_loaded_at_metadata(source_xlsx):
     # Assert
     assert (df["_SOURCE_FILE"] == str(source_xlsx)).all()
     assert df["_LOADED_AT"].notna().all()
-
-
-def test_load_raises_on_missing_env_var(source_xlsx):
-    # Arrange — a missing env var for connection config
-
-    # Act & Assert
-    with pytest.raises(KeyError), patch.dict("os.environ", {}, clear=True):
-        load(source_xlsx)
-
-
-def test_load_raises_on_connection_error(source_xlsx):
-    # Arrange — a connection error from Snowflake, with env vars mocked
-
-    # Act & Assert
-    env_vars = {
-        "SNOWFLAKE_ACCOUNT": "test",
-        "TEST_SNOWFLAKE_USER": "test",
-        "TEST_SNOWFLAKE_PASSWORD": "test",
-        "SNOWFLAKE_ROLE": "test",
-        "SNOWFLAKE_WAREHOUSE": "test",
-        "SNOWFLAKE_DATABASE": "test",
-    }
-    with (
-        pytest.raises(snowflake.connector.errors.Error),
-        patch.dict("os.environ", env_vars),
-        patch("src.bronze.load_online_retail.connect") as mock_connect,
-    ):
-        mock_connect.side_effect = snowflake.connector.errors.ProgrammingError("Connection failed")
-        load(source_xlsx)

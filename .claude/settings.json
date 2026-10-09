@@ -16,7 +16,8 @@
       "Bash(.venv/bin/python -m ruff check src/scripts/token_usage.py)",
       "Bash(echo \"---exit $?---\")",
       "Bash(.venv/bin/python -m pytest tests/test_load_online_retail.py -v)",
-      "Bash(.venv/bin/python -m pytest tests/ -v)"
+      "Bash(.venv/bin/python -m pytest tests/ -v)",
+      "Bash(.venv/bin/python -m src.scripts.token_usage --limit 12)"
     ]
   },
   "hooks": {

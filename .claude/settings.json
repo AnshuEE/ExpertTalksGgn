@@ -17,7 +17,15 @@
       "Bash(echo \"---exit $?---\")",
       "Bash(.venv/bin/python -m pytest tests/test_load_online_retail.py -v)",
       "Bash(.venv/bin/python -m pytest tests/ -v)",
-      "Bash(.venv/bin/python -m src.scripts.token_usage --limit 12)"
+      "Bash(.venv/bin/python -m src.scripts.token_usage --limit 12)",
+      "Bash(dbt build *)",
+      "Bash(tee /tmp/dbt_build_output.log)",
+      "Bash(python -m src.scripts.token_usage)",
+      "Bash(python -m src.scripts.token_usage 78e910d9-26ce-4b2b-ac16-1a1462623af6 --by-model)",
+      "Bash(python -m src.scripts.token_usage 78e910d9-26ce-4b2b-ac16-1a1462623af6)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   },
   "hooks": {

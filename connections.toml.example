@@ -1,0 +1,48 @@
+# Snowflake CLI connection — used by `snow sql -f sql/deploy/*.sql`.
+#
+# The `snow` CLI does not read .env or SNOWFLAKE_* variables the way dbt and the
+# Python connector do. It reads a connections.toml.
+#
+# Option A (recommended) — keep it out of the repo entirely:
+#     cp connections.toml.example ~/.snowflake/connections.toml
+#     chmod 0600 ~/.snowflake/connections.toml
+#     snow sql -c expert_talk -f sql/deploy/01_git_repository.sql
+#
+# Option B — keep it beside the repo. connections.toml is gitignored, but a file
+# holding a password inside a working tree is one `git add -f` from a mistake:
+#     cp connections.toml.example connections.toml
+#     chmod 0600 connections.toml
+#     SNOWFLAKE_HOME=$PWD snow sql -c expert_talk -f sql/deploy/01_git_repository.sql
+#
+# Option C — no file at all. The CLI reads per-field environment variables,
+# so an already-sourced .env can be forwarded without a password ever landing
+# on disk:
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_ACCOUNT=$SNOWFLAKE_ACCOUNT \
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_USER=$SNOWFLAKE_USER \
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_PASSWORD=$SNOWFLAKE_PASSWORD \
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_ROLE=$SNOWFLAKE_ROLE \
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_WAREHOUSE=$SNOWFLAKE_WAREHOUSE \
+#     SNOWFLAKE_CONNECTIONS_EXPERT_TALK_DATABASE=$SNOWFLAKE_DATABASE \
+#       snow sql -c expert_talk -f sql/deploy/01_git_repository.sql
+#
+# This file is tracked. Leave every value a <placeholder> — check_no_secrets.py
+# rejects a real account host or password here.
+
+default_connection_name = "expert_talk"
+
+[connections.expert_talk]
+# Org-account identifier, e.g. myorg-myaccount. Not the full host, not a URL.
+account   = "<SNOWFLAKE_ACCOUNT>"
+user      = "<SNOWFLAKE_USER>"
+
+# Password auth: this account has no SAML IdP, so authenticator = "externalbrowser"
+# fails at auth. Same reason dbt's dev target uses a password.
+password  = "<SNOWFLAKE_PASSWORD>"
+
+role      = "<SNOWFLAKE_ROLE>"
+warehouse = "<SNOWFLAKE_WAREHOUSE>"
+database  = "EXPERT_TALK"
+schema    = "PUBLIC"
+
+# Keeps a deploy from dying on a session timeout mid-run.
+client_session_keep_alive = true

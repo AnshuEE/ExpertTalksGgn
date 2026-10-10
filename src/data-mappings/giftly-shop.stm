@@ -1,0 +1,328 @@
+// ============================================================================
+// Satsuma by example: "Giftly" — an online retail gifting shop
+//
+// Goal: move order data from the web shop's JSON order feed (plus a product
+// catalogue CSV) into an analytics warehouse, and define one business metric.
+//
+// How to read this file (the whole language in three rules):
+// ( )  = metadata    — facts ABOUT a field or schema: (pk), (pii), (enum {...})
+// { }  = structure   — contents of a schema, mapping, or transform
+// " "  = natural language — human intent, for people and AI agents to interpret
+//
+// Comments:   //  info      //!  warning (known data issue)      //?  open question
+// ============================================================================
+
+note {
+  """
+  # Giftly order analytics
+
+  Loads the **web shop order feed** into the warehouse for the gifting team.
+
+  ## Why this exists
+  - Gift orders (wrapping, messages, delivery dates) are the business's margin
+    driver, but today they are analysed by hand from CSV exports.
+  - Finance wants *net revenue* by product category and gift occasion.
+
+  ## Scope of this file
+  1. Source schemas (what we receive)
+  2. Target schemas (what we publish)
+  3. Mappings (how data moves, field by field)
+  4. One business metric and one report that consumes it
+  """
+}
+
+// ----------------------------------------------------------------------------
+// 1. FRAGMENTS and TRANSFORMS — reusable pieces
+// ----------------------------------------------------------------------------
+// A fragment is a reusable set of fields. Spread it into any schema with `...name`.
+fragment audit_columns {
+  loaded_at      TIMESTAMP   (required)
+  source_system  STRING(30)  (required)
+}
+
+// A named transform is a reusable pipeline. Spread it into any arrow with `...name`.
+transform clean_text {
+  trim
+  | "Collapse repeated whitespace to a single space"
+  | null_if_empty
+}
+
+// ----------------------------------------------------------------------------
+// 2. SOURCE SCHEMAS
+// ----------------------------------------------------------------------------
+// Everything is a `schema`. Whether it is a source or a target is decided
+// later, by how a mapping uses it.
+schema webshop_orders (
+  format json,
+  note "One JSON document per order, from the web shop order-feed API"
+) {
+  order_id   STRING(20)  (pk)
+  placed_at  STRING  //! ISO-8601 text with a timezone offset, not a real timestamp
+  status     STRING (enum {NEW, PAID, PACKED, SHIPPED, CANCELLED, REFUNDED})
+  currency   CHAR(3)     (default GBP)
+  is_gift    BOOLEAN     (default false)
+
+  // `record` = a nested object
+  customer record {
+    customer_ref  STRING(30)
+    first_name    STRING(100)
+    last_name     STRING(100)
+    email         STRING(255)  (pii)  //! typed by shoppers at checkout, contains typos
+    phone         STRING(40)   (pii)  //! free text, every format imaginable
+  }
+
+  // Only present when is_gift = true
+  gift record {
+    recipient_name  STRING(150)  (pii)
+    message         STRING(500) (
+      note "Free text typed by the shopper, may contain emoji"
+    )
+    wrap_style      STRING (enum {none, kraft, luxe, seasonal}, default none)
+    deliver_on      DATE (note "Requested delivery date, not the dispatch date")
+  }
+
+  // `list_of record` = a repeating nested object (an array)
+  lines list_of record {
+    line_no           INT
+    sku               STRING(20)
+    quantity          INT
+    unit_price_pence  INT         (note "Price in pence, tax-exclusive")
+    discount_pence    INT         (default 0)
+  }
+}
+
+schema product_catalog (
+  format csv,
+  note "Nightly export from the merchandising system"
+) {
+  sku                STRING(20)     (pk)
+  product_name       STRING(200)
+  category_code      CHAR(3)        (enum {CHO, FLO, HMP, CND, TOY, JWL})  //! JWL added in 2025, older rows may be blank
+  unit_cost          DECIMAL(10,2)
+  is_personalisable  BOOLEAN
+}
+
+// ----------------------------------------------------------------------------
+// 3. TARGET SCHEMAS
+// ----------------------------------------------------------------------------
+schema dim_customer (note "Customer dimension — one row per customer_ref") {
+  customer_key   UUID         (pk, required)
+  customer_ref   STRING(30)   (unique, required)
+  full_name      STRING(200)
+  email_address  STRING(255)  (format email, pii)
+  phone_e164     STRING(20)   (format E.164, pii)
+  ...audit_columns
+}
+
+schema fact_order_line (note "Fact table — one row per order line") {
+  order_line_key  STRING(40)     (pk, required)
+  order_id        STRING(20)     (required)
+  order_ts        TIMESTAMP      (required)
+  customer_ref    STRING(30)     (ref dim_customer.customer_ref)
+  order_status    STRING(20) (
+    enum {pending, paid, packed, shipped, cancelled, refunded}
+  )
+  sku             STRING(20)     (required)
+  category        STRING(20) (
+    enum {chocolate, flowers, hamper, candle, toy, jewellery, unknown}
+  )
+  quantity        INT            (required)
+  unit_price_gbp  DECIMAL(10,2)
+  gross_gbp       DECIMAL(12,2)
+  discount_gbp    DECIMAL(12,2)
+  net_gbp         DECIMAL(12,2)
+  margin_gbp      DECIMAL(12,2)
+  is_gift         BOOLEAN
+  gift_wrap       STRING(20)     (enum {none, kraft, luxe, seasonal})
+  occasion        STRING(30) (
+    enum {birthday, anniversary, wedding, new_baby, thank_you, christmas, other}
+  )
+  deliver_on      DATE
+  ...audit_columns
+}
+
+// ----------------------------------------------------------------------------
+// 4. MAPPINGS
+// ----------------------------------------------------------------------------
+// A mapping says: from THIS source, into THAT target, field by field.
+// `src -> tgt` is a plain copy. Add `{ ... }` to say what happens on the way.
+mapping `customers` {
+  note {
+    "Customers arrive embedded in every order, so the same customer appears many
+     times. Deduplicate on customer_ref and keep the most recent values."
+  }
+
+  source { webshop_orders }
+  target { dim_customer }
+
+  // Nested source fields are reached with dotted paths.
+
+  // Transform bodies are pipelines. Steps are separated by | and read left to right.
+  // Plain words like trim or lowercase are natural language shorthand, not code.
+  customer.customer_ref -> customer_ref { trim }
+
+  // Natural language in quotes is fine wherever the logic is business-specific.
+  customer.customer_ref -> customer_key {
+    "Generate a UUID v5 from @customer.customer_ref using the Giftly customer namespace"
+  }
+
+  // `-> target` with no source on the left means the value is computed or derived.
+  -> full_name {
+    "Concatenate @customer.first_name and @customer.last_name with one space, then title-case."
+    | ...clean_text
+  }
+
+  customer.email -> email_address {
+    trim
+    | lowercase
+    | validate_email
+    | null_if_invalid
+  }
+  //? Should we try to repair common typos like gmial.com, or leave them as NULL?
+
+  customer.phone -> phone_e164 {
+    "Strip everything except digits and a leading +. Assume UK (+44) when there is
+     no country code. Format as E.164."
+    | warn_if_invalid
+  }
+
+  // Fields from a fragment are mapped like any other field.
+  -> loaded_at { now_utc }
+  -> source_system { "Set to the literal 'webshop'" }
+}
+
+mapping `order lines` {
+  note {
+    """
+    One order becomes many rows, one per line item.
+
+    Order-level fields (id, timestamp, customer, gift details) are repeated on
+    every row so analysts never have to join back to the order.
+    """
+  }
+
+  // The source block can hold several schemas, source-level filters, and a
+  // natural-language join. Use @ref so tools can trace lineage through the prose.
+  source {
+    webshop_orders (filter "status != 'NEW'"),
+    product_catalog,
+    "Join @webshop_orders.lines.sku to @product_catalog.sku. Keep the order line even if there is no catalogue match."
+  }
+  target { fact_order_line }
+
+  // Deliberately NOT mapped (this is what `satsuma coverage` will report):
+  // gift.recipient_name  — PII the analytics team does not need
+  // gift.message         — only used indirectly, to infer `occasion`
+  // currency             — the shop trades in GBP only today
+  //! If Giftly ever sells in another currency, the pence-to-pounds maths below breaks.
+
+  // `flatten` produces one output row per element of a source array.
+  // Inside the block:  .field = the current line item,  ^.field = one level up (the order).
+  flatten lines -> fact_order_line {
+    // --- keys and identifiers ---
+    -> order_line_key {
+      "Concatenate @^.order_id and @.line_no with a hyphen, e.g. GF10042-1"
+    }
+    ^.order_id -> order_id
+
+    // --- order-level fields, repeated on every row ---
+    ^.placed_at -> order_ts {
+      "Parse as ISO-8601 including the timezone offset"
+      | to_utc
+      | to_iso8601
+    }
+
+    ^.customer.customer_ref -> customer_ref { trim }
+
+    ^.status -> order_status {
+      map {
+        NEW: "pending"
+        PAID: "paid"
+        PACKED: "packed"
+        SHIPPED: "shipped"
+        CANCELLED: "cancelled"
+        REFUNDED: "refunded"
+      }
+    }
+
+    // --- line-level fields ---
+    .sku -> sku { trim | uppercase }
+    .quantity -> quantity
+
+    .unit_price_pence -> unit_price_gbp { "Divide by 100" | round(2) }
+
+    -> gross_gbp { "@.quantity multiplied by @unit_price_gbp" }
+
+    .discount_pence -> discount_gbp { coalesce(0) | "Divide by 100" | round(2) }
+
+    -> net_gbp { "@gross_gbp minus @discount_gbp" }
+    //! Refunded lines keep a positive net_gbp here. Finance reports negate them downstream.
+
+    -> margin_gbp {
+      "@net_gbp minus (@product_catalog.unit_cost multiplied by @.quantity). NULL when there is no catalogue match."
+    }
+
+    // --- product lookup: a value map with a fallback ---
+    -> category {
+      "Look up @product_catalog.category_code for this SKU."
+      | map {
+        CHO: "chocolate"
+        FLO: "flowers"
+        HMP: "hamper"
+        CND: "candle"
+        TOY: "toy"
+        JWL: "jewellery"
+        null: "unknown"
+        default: "unknown"
+      }
+    }
+
+    // --- gift details, repeated on every line ---
+    ^.is_gift -> is_gift
+
+    ^.gift.wrap_style -> gift_wrap { coalesce("none") }
+
+    ^.gift.deliver_on -> deliver_on
+
+    // When the logic is genuinely a judgement call, say so in plain language.
+    -> occasion {
+      "Infer the occasion from @^.gift.message using keywords such as 'happy birthday',
+       'congratulations', 'thank you', 'merry christmas'. If is_gift is false, or nothing
+       matches, use 'other'."
+    }
+    //? Could we ask shoppers to pick an occasion at checkout instead of guessing from free text?
+
+    -> loaded_at { now_utc }
+    -> source_system { "Set to the literal 'webshop'" }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 5. A BUSINESS METRIC and a REPORT that consumes it
+// ----------------------------------------------------------------------------
+// A metric is just a schema decorated with (metric, ...) metadata.
+// Tokens like metric_name, grain and slice are conventions, not reserved words:
+// any team can invent its own and document it for its AI agents.
+schema gift_net_revenue (
+  metric,
+  metric_name "Gift Net Revenue",
+  source fact_order_line,
+  grain daily,
+  slice {category, occasion, gift_wrap},
+  filter "is_gift = true AND order_status NOT IN ('cancelled', 'refunded')"
+) {
+  net_revenue_gbp  DECIMAL(14,2)  (measure additive)
+
+  note {
+    "Sum of @fact_order_line.net_gbp for gift orders that were not cancelled or refunded.
+     Additive across all slices, so it is safe to sum by any dimension."
+  }
+}
+
+// Reports and models are also schemas, marked with their own tag.
+schema gifting_dashboard (report, source {gift_net_revenue}, tool looker) {
+  report_date      DATE
+  category         STRING(20)
+  occasion         STRING(30)
+  net_revenue_gbp  DECIMAL(14,2)
+}
